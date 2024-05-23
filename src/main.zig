@@ -40,14 +40,14 @@ fn parseArgs(args: [][:0]u8) Error!AlgorithmDescriptor {
         return error.WrongArgsNum;
     }
 
-    if (!std.mem.eql(u8, args[1 + @as(usize, @boolToInt(decrypt))][0..2], "-k")) {
+    if (!std.mem.eql(u8, args[1 + @as(usize, @intFromBool(decrypt))][0..2], "-k")) {
         printHelp();
         return error.WrongArg;
     }
 
-    const key_in_hex = std.mem.eql(u8, args[1 + @as(usize, @boolToInt(decrypt))], "-kx");
+    const key_in_hex = std.mem.eql(u8, args[1 + @as(usize, @intFromBool(decrypt))], "-kx");
 
-    const key_str = args[2 + @as(usize, @boolToInt(decrypt))];
+    const key_str = args[2 + @as(usize, @intFromBool(decrypt))];
     if ((!key_in_hex and key_str.len != 8) and key_str.len != 16) {
         printHelp();
         return error.WrongKey;
@@ -70,7 +70,7 @@ fn parseArgs(args: [][:0]u8) Error!AlgorithmDescriptor {
                 return error.WrongKey;
             }
 
-            key |= (@as(u64, @truncate(u4, key_char - offset)) << ((15 - i) * 4));
+            key |= (@as(u64, @as(u4,@truncate( key_char - offset))) << ((15 - i) * 4));
         }
     } else {
         var i: u6 = 0;
@@ -79,26 +79,26 @@ fn parseArgs(args: [][:0]u8) Error!AlgorithmDescriptor {
         }
     }
 
-    if (!std.mem.eql(u8, args[3 + @as(usize, @boolToInt(decrypt))], "-i")) {
+    if (!std.mem.eql(u8, args[3 + @as(usize, @intFromBool(decrypt))], "-i")) {
         printHelp();
         return error.WrongArg;
     }
     
     const intput_file = std.fs.cwd().openFileZ(
-        args[4 + @as(usize, @boolToInt(decrypt))], 
+        args[4 + @as(usize, @intFromBool(decrypt))],
         .{ .mode = .read_only }
     ) catch {
         printHelp();
         return error.WrongInputFile;
     };
 
-    if (!std.mem.eql(u8, args[5 + @as(usize, @boolToInt(decrypt))], "-o")) {
+    if (!std.mem.eql(u8, args[5 + @as(usize, @intFromBool(decrypt))], "-o")) {
         printHelp();
         return error.WrongArg;
     }
 
     const output_file = std.fs.cwd().createFileZ(
-        args[6 + @as(usize, @boolToInt(decrypt))], 
+        args[6 + @as(usize, @intFromBool(decrypt))],
         .{ .truncate = true }
     ) catch {
         printHelp();
@@ -116,20 +116,20 @@ fn parseArgs(args: [][:0]u8) Error!AlgorithmDescriptor {
 fn convertBlockToU64(block: [8]u8) u64 {
     var result: u64 = 0;
     for (&block, 0..) |value, i| {
-        result |= (@as(u64, value) << @intCast(u6, (7 - i) * 8));
+        result |= (@as(u64, value) << @as(u6,@intCast((7 - i) * 8)));
     }
     return result;
 }
 fn convertU64ToBlock(value: u64, block: *[8]u8) void {
     for (block, 0..) |*block_value, i| {
-        block_value.* = @truncate(u8, ((value >> @intCast(u6, (7 - i) * 8)) & @as(u64, 0xFF)));
+        block_value.* = @as(u8,@truncate( ((value >> @as(u6,@intCast((7 - i) * 8))) & @as(u64, 0xFF))));
     }
 }
 
 fn feistel(Rn: u32, key: u48) u32 {
     var expanded_rn: u48 = 0;
     for (&E_BIT_SELECTION, 0..) |p, i| {
-        expanded_rn |= (@as(u48, ((@as(u32, 1) << @intCast(u5, 31-(p-1))) & Rn) >> @intCast(u5, 31-(p-1))) << @intCast(u6, 47 - i));
+        expanded_rn |= (@as(u48, ((@as(u32, 1) << @as(u5,@intCast(31-(p-1)))) & Rn) >> @as(u5,@intCast(31-(p-1)))) << @as(u6,@intCast(47 - i)));
     }
 
     const xored_expanded_rn: u48 = expanded_rn ^ key;
@@ -137,16 +137,16 @@ fn feistel(Rn: u32, key: u48) u32 {
     var result: u32 = 0;
     var i: usize = 0;
     while (i < S_TABLES.len) : (i += 1) {
-        const index: u6 = @truncate(u6, xored_expanded_rn >> @intCast(u6, 6 * ((S_TABLES.len - 1) - i)));
+        const index: u6 = @as(u6,@truncate( xored_expanded_rn >> @as(u6,@intCast(6 * ((S_TABLES.len - 1) - i)))));
 
         const normalized_index: u6 = (@as(u6, 0xF) & index >> 1) + 16 * ((index & @as(u6, 0x1)) | ((index >> 4) & @as(u6, 0x2)));
 
-        result |= (@as(u32, S_TABLES[i][@as(usize, normalized_index)]) << @intCast(u5, 4 * ((S_TABLES.len - 1) - i)));
+        result |= (@as(u32, S_TABLES[i][@as(usize, normalized_index)]) << @as(u5,@intCast(4 * ((S_TABLES.len - 1) - i))));
     }
 
     var permuted_result: u32 = 0; 
     for (&P, 0..) |p, j| {
-        permuted_result |= (((@as(u32, 1) << @intCast(u5, 31-(p-1))) & result) >> @intCast(u5, 31-(p-1))) << @intCast(u5, 31 - j);
+        permuted_result |= (((@as(u32, 1) << @as(u5,@intCast(31-(p-1)))) & result) >> @as(u5,@intCast(31-(p-1)))) << @as(u5,@intCast(31 - j));
     }
 
     return permuted_result;
@@ -156,11 +156,11 @@ fn encode(block: *[8]u8, subkeys: [16]u48) void {
     const block_as_int = convertBlockToU64(block.*);
     var out: u64 = 0;
     for (&IP, 0..) |p, i| {
-        out |= @intCast(u64, ((@as(u64, @as(u64, 1) << (63-(@intCast(u6,p-1)))) & block_as_int) >> (63-@intCast(u6,p-1))) << @intCast(u6, 63 - i));
+        out |= @as(u64,@intCast(((@as(u64, @as(u64, 1) << (63-(@as(u6,@intCast(p-1))))) & block_as_int) >> (63-@as(u6,@intCast(p-1)))) << @as(u6,@intCast(63 - i))));
     }
 
-    var lhs: u32 = @truncate(u32, (out >> 32));
-    var rhs: u32 = @truncate(u32, out);
+    var lhs: u32 = @as(u32,@truncate( (out >> 32)));
+    var rhs: u32 = @as(u32,@truncate( out));
 
     var i: usize = 0;
     while (i < 16) : (i += 1) {
@@ -171,10 +171,10 @@ fn encode(block: *[8]u8, subkeys: [16]u48) void {
         rhs = tmp ^ feistel(rhs, subkey);
     }
 
-    var R16L16: u64 = (@as(u64, rhs) << 32) | @as(u64, lhs);
+    const R16L16: u64 = (@as(u64, rhs) << 32) | @as(u64, lhs);
     out = 0;
     for (&IP_1, 0..) |p, j| {
-        out |= (((@as(u64, 1) << @intCast(u6, 63-(p-1))) & R16L16) >> @intCast(u6, 63-(p-1))) << @intCast(u6, 63 - j);
+        out |= (((@as(u64, 1) << @as(u6,@intCast(63-(p-1)))) & R16L16) >> @as(u6,@intCast(63-(p-1)))) << @as(u6,@intCast(63 - j));
     }
     
     convertU64ToBlock(out, block);
@@ -188,19 +188,19 @@ fn perform(alg_descriptor: AlgorithmDescriptor) !void {
 
     var buffer: [32 * 8]u8 = .{0} ** 256;
     while (true) {
-        var bytes_read = try input_file_reader.read(buffer[0..]);
+        const bytes_read = try input_file_reader.read(buffer[0..]);
 
         if (bytes_read < buffer.len) {
-            std.mem.set(u8, buffer[bytes_read..], 0);
+            @memset(buffer[bytes_read..], 0);
         }
 
         var i: usize = 0;
-        while(i < bytes_read/8 + @boolToInt(bytes_read%8 != 0)) : (i += 1) {
+        while(i < bytes_read/8 + @intFromBool(bytes_read%8 != 0)) : (i += 1) {
             var block = buffer[(i*8)..((i+1)*8)];
             encode(block[0..8], alg_descriptor.subkeys);
         }
 
-        var bytes_written = try output_file_writer.write(buffer[0..bytes_read]);
+        const bytes_written = try output_file_writer.write(buffer[0..bytes_read]);
         if (bytes_written != bytes_read) {
             return error.FileWritingError;
         }
@@ -214,11 +214,11 @@ fn perform(alg_descriptor: AlgorithmDescriptor) !void {
 fn generateKeys(key: u64, subkeys: *[16]u48) void {
     var stripped_key: u56 = 0;
     for (&PC1, 0..) |p, i| {
-        stripped_key |= @intCast(u56, ((@as(u64, @as(u64, 1) << (63-(p-1))) & key) >> (63-(p-1))) << @intCast(u6, 55 - i));
+        stripped_key |= @as(u56,@intCast(((@as(u64, @as(u64, 1) << (63-(p-1))) & key) >> (63-(p-1))) << @as(u6,@intCast(55 - i))));
     }
 
-    var key_lhs: u28 = @intCast(u28, (stripped_key & @as(u56, 0xF_FF_FF_FF) << @intCast(u6, 28)) >> @intCast(u6, 28));
-    var key_rhs: u28 = @intCast(u28, stripped_key & @as(u56, 0xF_FF_FF_FF));
+    var key_lhs: u28 = @as(u28,@intCast((stripped_key & @as(u56, 0xF_FF_FF_FF) << @as(u6,@intCast(28))) >> @as(u6,@intCast(28))));
+    var key_rhs: u28 = @as(u28,@intCast(stripped_key & @as(u56, 0xF_FF_FF_FF)));
 
     var i: usize = 0;
     while (i < 16) : (i += 1) {
@@ -228,10 +228,10 @@ fn generateKeys(key: u64, subkeys: *[16]u48) void {
             key_rhs = (key_rhs << 1) | (key_rhs & @as(u28, 1 << 27)) >> 27;
         }
 
-        const subkey: u56 = (@intCast(u56, key_lhs) << @intCast(u6, 28)) | @intCast(u56, key_rhs);
+        const subkey: u56 = (@as(u56,@intCast(key_lhs)) << @as(u6,@intCast(28))) | @as(u56,@intCast(key_rhs));
         var permutated_subkey: u48 = 0;    
         for (&PC2, 0..) |p, j| {
-            permutated_subkey |= @intCast(u48, (((@as(u56, 1) << (55-(p-1))) & subkey) >> (55-(p-1))) << @intCast(u6, 47 - j));
+            permutated_subkey |= @as(u48,@intCast((((@as(u56, 1) << (55-(p-1))) & subkey) >> (55-(p-1))) << @as(u6,@intCast(47 - j))));
         }
         subkeys.*[i] = permutated_subkey;
     }
