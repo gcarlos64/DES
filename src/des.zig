@@ -1,26 +1,72 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
-pub const AlgorithmDescriptor = struct {
-    key: u64,
-    subkeys: [16]u48 = .{0} ** 16, 
-    decrypt: bool,
-    input_file: std.fs.File = undefined,
-    output_file: std.fs.File = undefined
+pub const Mode = enum {
+    CBC,
 };
 
-fn convertBlockToU64(block: [8]u8) u64 {
-    var result: u64 = 0;
-    for (&block, 0..) |value, i| {
-        result |= (@as(u64, value) << @as(u6,@intCast((7 - i) * 8)));
-    }
-    return result;
-}
+pub const Cipher = struct {
+    key: u64,
+    subkeys: [16]u48,
+    inv_subkeys: [16]u48,
+    mode: Mode,
 
-fn convertU64ToBlock(value: u64, block: *[8]u8) void {
-    for (block, 0..) |*block_value, i| {
-        block_value.* = @as(u8,@truncate( ((value >> @as(u6,@intCast((7 - i) * 8))) & @as(u64, 0xFF))));
+    pub fn init(key: u64, mode: Mode) Cipher {
+        const subkeys = generateSubkeys(key);
+        var inv_subkeys = subkeys;
+        std.mem.reverse(u48, inv_subkeys[0..]);
+        return Cipher {
+            .key = key,
+            .subkeys = subkeys,
+            .inv_subkeys = inv_subkeys,
+            .mode = mode,
+        };
     }
-}
+};
+
+pub const Block = struct {
+    repr: u64,
+
+    pub fn fromBytes(bytes: [8]u8) Block {
+        const repr = std.mem.readInt(u64, &bytes, .big);
+        return Block { .repr = repr };
+    }
+
+    pub fn toBytes(block: Block) [8]u8 {
+        var result = std.mem.toBytes(block.repr);
+        if (builtin.cpu.arch.endian() == .little) {
+            std.mem.reverse(u8, &result);
+        }
+        return result;
+    }
+
+    pub fn encode(block: *const Block, subkeys: *const [16]u48) Block {
+        var out: u64 = 0;
+        for (&IP, 0..) |p, i| {
+            out |= @as(u64,@intCast(((@as(u64, @as(u64, 1) << (63-(@as(u6,@intCast(p-1))))) & block.repr) >> (63-@as(u6,@intCast(p-1)))) << @as(u6,@intCast(63 - i))));
+        }
+
+        var lhs: u32 = @as(u32,@truncate( (out >> 32)));
+        var rhs: u32 = @as(u32,@truncate( out));
+
+        var i: usize = 0;
+        while (i < 16) : (i += 1) {
+            const subkey = subkeys[i];
+
+            const tmp = lhs; 
+            lhs = rhs;
+            rhs = tmp ^ feistel(rhs, subkey);
+        }
+
+        const R16L16: u64 = (@as(u64, rhs) << 32) | @as(u64, lhs);
+        out = 0;
+        for (&IP_1, 0..) |p, j| {
+            out |= (((@as(u64, 1) << @as(u6,@intCast(63-(p-1)))) & R16L16) >> @as(u6,@intCast(63-(p-1)))) << @as(u6,@intCast(63 - j));
+        }
+
+        return Block { .repr = out };
+    }
+};
 
 fn feistel(Rn: u32, key: u48) u32 {
     var expanded_rn: u48 = 0;
@@ -48,64 +94,8 @@ fn feistel(Rn: u32, key: u48) u32 {
     return permuted_result;
 }
 
-fn encode(block: *[8]u8, subkeys: [16]u48) void {
-    const block_as_int = convertBlockToU64(block.*);
-    var out: u64 = 0;
-    for (&IP, 0..) |p, i| {
-        out |= @as(u64,@intCast(((@as(u64, @as(u64, 1) << (63-(@as(u6,@intCast(p-1))))) & block_as_int) >> (63-@as(u6,@intCast(p-1)))) << @as(u6,@intCast(63 - i))));
-    }
-
-    var lhs: u32 = @as(u32,@truncate( (out >> 32)));
-    var rhs: u32 = @as(u32,@truncate( out));
-
-    var i: usize = 0;
-    while (i < 16) : (i += 1) {
-        const subkey = subkeys[i];
-
-        const tmp = lhs; 
-        lhs = rhs;
-        rhs = tmp ^ feistel(rhs, subkey);
-    }
-
-    const R16L16: u64 = (@as(u64, rhs) << 32) | @as(u64, lhs);
-    out = 0;
-    for (&IP_1, 0..) |p, j| {
-        out |= (((@as(u64, 1) << @as(u6,@intCast(63-(p-1)))) & R16L16) >> @as(u6,@intCast(63-(p-1)))) << @as(u6,@intCast(63 - j));
-    }
-    
-    convertU64ToBlock(out, block);
-}
-
-pub fn perform(alg_descriptor: AlgorithmDescriptor) !void {
-    const input_file_reader = alg_descriptor.input_file.reader();
-    const output_file_writer = alg_descriptor.output_file.writer();
-
-    var buffer: [32 * 8]u8 = .{0} ** 256;
-    while (true) {
-        const bytes_read = try input_file_reader.read(buffer[0..]);
-
-        if (bytes_read < buffer.len) {
-            @memset(buffer[bytes_read..], 0);
-        }
-
-        var i: usize = 0;
-        while(i < bytes_read/8 + @intFromBool(bytes_read%8 != 0)) : (i += 1) {
-            var block = buffer[(i*8)..((i+1)*8)];
-            encode(block[0..8], alg_descriptor.subkeys);
-        }
-
-        const bytes_written = try output_file_writer.write(buffer[0..bytes_read]);
-        if (bytes_written != bytes_read) {
-            return error.FileWritingError;
-        }
-
-        if (bytes_read < buffer.len) {
-            break;
-        }
-    }
-}
-
-pub fn generateKeys(key: u64, subkeys: *[16]u48) void {
+fn generateSubkeys(key: u64) [16]u48 {
+    var subkeys: [16]u48 = .{0}**16;
     var stripped_key: u56 = 0;
     for (&PC1, 0..) |p, i| {
         stripped_key |= @as(u56,@intCast(((@as(u64, @as(u64, 1) << (63-(p-1))) & key) >> (63-(p-1))) << @as(u6,@intCast(55 - i))));
@@ -127,8 +117,10 @@ pub fn generateKeys(key: u64, subkeys: *[16]u48) void {
         for (&PC2, 0..) |p, j| {
             permutated_subkey |= @as(u48,@intCast((((@as(u56, 1) << (55-(p-1))) & subkey) >> (55-(p-1))) << @as(u6,@intCast(47 - j))));
         }
-        subkeys.*[i] = permutated_subkey;
+        subkeys[i] = permutated_subkey;
     }
+
+    return subkeys;
 }
 
 // KEY GEN
@@ -252,7 +244,9 @@ const S_TABLES = [8][64]u4{
 };
 
 // TESTS //
-test "Test keys generation" {
+test "Subkeys generation" {
+    const key: u64 = 0x133457799BBCDFF1;
+    const subkeys: [16]u48 = generateSubkeys(key);
     const correct_subkeys = [_]u48{
         0b000110110000001011101111111111000111000001110010,
         0b011110011010111011011001110110111100100111100101,
@@ -272,93 +266,21 @@ test "Test keys generation" {
         0b110010110011110110001011000011100001011111110101,
     };
 
-    const key: u64 = 0x133457799BBCDFF1;
-
-    var subkeys: [16]u48 = .{0} ** 16;
-
-    generateKeys(key, &subkeys);
-
-    for (&subkeys, &correct_subkeys) |subkey, correct_subkey| {
+    for (subkeys, correct_subkeys) |subkey, correct_subkey| {
         try std.testing.expect(subkey == correct_subkey);
     } 
 }
 
-test "Test encryption" {
+test "Test block encode" {
     const key: u64 = 0x133457799BBCDFF1;
-    var subkeys: [16]u48 = .{0} ** 16;
-    generateKeys(key, &subkeys);
+    const subkeys: [16]u48 = generateSubkeys(key);
 
-    var input_file = try std.fs.cwd().openFile(
-        "in.txt",
-        .{ .mode = .read_only }
-    );
-    var output_file = try std.fs.cwd().createFile(
-        "tmp_out.txt",
-        .{ .truncate = true }
-    );
-    
-    try perform(.{
-        .key = key,
-        .subkeys = subkeys,
-        .decrypt = false,
-        .input_file = input_file,
-        .output_file = output_file
-    });
+    const in_bytes: [8]u8 = .{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef };
+    const in_block = Block.fromBytes(in_bytes);
 
-    input_file.close();
-    output_file.close();
+    const out_block = in_block.encode(&subkeys);
+    const out_bytes = out_block.toBytes();
+    const expected_out_bytes: [8]u8 = .{ 0x85, 0xe8, 0x13, 0x54, 0x0f, 0x0a, 0xb4, 0x05 };
 
-    output_file = try std.fs.cwd().openFile(
-        "tmp_out.txt",
-        .{ .mode = .read_only }
-    );
-
-    const correct_result: [8]u8 = .{ 0x85, 0xe8, 0x13, 0x54, 0x0f, 0x0a, 0xb4, 0x05 };
-    var result: [8]u8 = .{0} ** 8;
-    _ = try output_file.read(result[0..]);
-
-    try std.testing.expect(std.mem.eql(u8, correct_result[0..], result[0..]));    
-
-    output_file.close();
-}
-
-test "Test decryption" {
-    const key: u64 = 0x133457799BBCDFF1;
-    var subkeys: [16]u48 = .{0} ** 16;
-    generateKeys(key, &subkeys);
-
-    std.mem.reverse(u48, subkeys[0..]);
-
-    var input_file = try std.fs.cwd().openFile(
-        "tmp_out.txt",
-        .{ .mode = .read_only }
-    );
-    var output_file = try std.fs.cwd().createFile(
-        "tmp_in.txt",
-        .{ .truncate = true }
-    );
-    
-    try perform(.{
-        .key = key,
-        .subkeys = subkeys,
-        .decrypt = true,
-        .input_file = input_file,
-        .output_file = output_file
-    });
-
-    input_file.close();
-    output_file.close();
-
-    output_file = try std.fs.cwd().openFile(
-        "tmp_in.txt",
-        .{ .mode = .read_only }
-    );
-
-    const correct_result: [8]u8 = .{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, };
-    var result: [8]u8 = .{0} ** 8;
-    _ = try output_file.read(result[0..]);
-
-    try std.testing.expect(std.mem.eql(u8, correct_result[0..], result[0..]));  
-
-    output_file.close();
+    try std.testing.expect(std.mem.eql(u8, out_bytes[0..], expected_out_bytes[0..]));
 }
