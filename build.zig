@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) void {
     const zig_args = zig_args_pkg.module("args");
 
     const exe = b.addExecutable(.{
-        .name = "DES",
+        .name = "des",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
