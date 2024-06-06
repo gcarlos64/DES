@@ -1,8 +1,20 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const DesError = error {
+    InvalidCipherDescription,
+    SrcDstSizeMismatch,
+    InvalidSrcLenght,
+};
+
 pub const Mode = enum {
     CBC,
+};
+
+const CipherDescr = struct {
+    key: u64,
+    mode: Mode,
+    iv: ?u64 = undefined,
 };
 
 pub const Cipher = struct {
@@ -10,22 +22,67 @@ pub const Cipher = struct {
     subkeys: [16]u48,
     inv_subkeys: [16]u48,
     mode: Mode,
+    iv: ?u64,
 
-    pub fn init(key: u64, mode: Mode) Cipher {
-        const subkeys = generateSubkeys(key);
+    const Action = enum { decrypt, encrypt };
+
+    pub fn init(descr: CipherDescr) !Cipher {
+        const key = descr.key;
+        const subkeys = generateSubkeys(descr.key);
         var inv_subkeys = subkeys;
         std.mem.reverse(u48, inv_subkeys[0..]);
+
+        const mode = descr.mode;
+        const iv = descr.iv;
+
         return Cipher {
             .key = key,
             .subkeys = subkeys,
             .inv_subkeys = inv_subkeys,
             .mode = mode,
+            .iv = iv,
         };
+    }
+
+    fn performCBC(self: *const Cipher, comptime action: Action, dst: []u8, src: []u8) !void {
+        const lenght = src.len / 8;
+        const subkeys = if (action == .encrypt) self.subkeys else self.inv_subkeys;
+        const iv = self.iv;
+
+        var i: usize = 0;
+        var last_block = Block { .repr = iv.? };
+        var block: Block = undefined;
+        var result: Block = undefined;
+        while (i < lenght) : (i += 1) {
+            if (action == .encrypt) {
+                block = Block.fromBytes(src[8 * i ..][0..8].*);
+                result = block.xor(last_block).encode(&subkeys);
+                last_block = result;
+            }
+            else {
+                block = Block.fromBytes(src[8 * i ..][0..8].*);
+                result = block.encode(&subkeys).xor(last_block);
+                last_block = block;
+            }
+
+            @memcpy(dst[8 * i ..][0..8], &result.toBytes());
+        }
+    }
+
+    pub fn perform(self: *const Cipher, comptime action: Action, dst: []u8, src: []u8) !void {
+        if (dst.len != src.len) return DesError.SrcDstSizeMismatch;
+        if (src.len % 8 != 0) return DesError.InvalidSrcLenght;
+
+        try self.performCBC(action, dst, src);
     }
 };
 
 pub const Block = struct {
     repr: u64,
+
+    pub fn xor(a: Block, b: Block) Block {
+        return Block { .repr = a.repr ^ b.repr };
+    }
 
     pub fn fromBytes(bytes: [8]u8) Block {
         const repr = std.mem.readInt(u64, &bytes, .big);
@@ -271,16 +328,41 @@ test "Subkeys generation" {
     } 
 }
 
-test "Test block encode" {
+test "Block encode" {
     const key: u64 = 0x133457799BBCDFF1;
     const subkeys: [16]u48 = generateSubkeys(key);
 
-    const in_bytes: [8]u8 = .{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef };
-    const in_block = Block.fromBytes(in_bytes);
+    const src_bytes: [8]u8 = .{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef };
+    const src_block = Block.fromBytes(src_bytes);
 
-    const out_block = in_block.encode(&subkeys);
-    const out_bytes = out_block.toBytes();
-    const expected_out_bytes: [8]u8 = .{ 0x85, 0xe8, 0x13, 0x54, 0x0f, 0x0a, 0xb4, 0x05 };
+    const dst_block = src_block.encode(&subkeys);
+    const dst_bytes = dst_block.toBytes();
+    const expected_dst_bytes: [8]u8 = .{ 0x85, 0xe8, 0x13, 0x54, 0x0f, 0x0a, 0xb4, 0x05 };
 
-    try std.testing.expect(std.mem.eql(u8, out_bytes[0..], expected_out_bytes[0..]));
+    try std.testing.expect(std.mem.eql(u8, &dst_bytes, &expected_dst_bytes));
+}
+
+test "CBC encryption/decryption" {
+    const key: u64 = 0x133457799BBCDFF1;
+    const iv: u64 = 0x0101010101010101;
+
+    const cipher = try Cipher.init(.{
+        .key = key,
+        .mode = .CBC,
+        .iv = iv,
+    });
+
+    const plaintext: [16]u8 = .{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef } ** 2;
+    const ciphertext: [16]u8 = .{ 0xb7, 0x8d, 0x73, 0xc8, 0x4a, 0x4c, 0x2f, 0xc5,
+                                  0x78, 0xdb, 0x61, 0x6c, 0x4e, 0x3a, 0xe4, 0xbb };
+
+    var src: [16]u8 = plaintext;
+    var dst: [16]u8 = .{0} ** 16;
+    try cipher.perform(.encrypt, &dst, &src);
+    try std.testing.expect(std.mem.eql(u8, &dst, &ciphertext));
+
+    src = ciphertext;
+    dst = .{0} ** 16;
+    try cipher.perform(.decrypt, &dst, &src);
+    try std.testing.expect(std.mem.eql(u8, &dst, &plaintext));
 }
