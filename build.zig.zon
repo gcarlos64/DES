@@ -6,4 +6,11 @@
         "build.zig.zon",
         "src/des.zig",
     },
+
+    .dependencies = .{
+        .@"zig-args" = .{
+            .url = "git+https://github.com/ikskuh/zig-args#872272205d95bdba33798c94e72c5387a31bc806",
+            .hash = "1220fe6ae56b668cc4a033282b5f227bfbb46a67ede6d84e9f9493fea9de339b5f37",
+        },
+    },
 }

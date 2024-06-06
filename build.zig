@@ -8,6 +8,13 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/des.zig"),
     });
 
+    const zig_args_pkg = b.dependency("zig-args", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const zig_args = zig_args_pkg.module("args");
+
     const exe = b.addExecutable(.{
         .name = "DES",
         .root_source_file = b.path("src/main.zig"),
@@ -16,6 +23,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.root_module.addImport("des", des);
+    exe.root_module.addImport("args", zig_args);
 
     b.installArtifact(exe);
 

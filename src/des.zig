@@ -24,7 +24,7 @@ pub const Cipher = struct {
     mode: Mode,
     iv: ?u64,
 
-    const Action = enum { decrypt, encrypt };
+    pub const Action = enum { decrypt, encrypt };
 
     pub fn init(descr: CipherDescr) !Cipher {
         const key = descr.key;
