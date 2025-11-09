@@ -1,6 +1,7 @@
 .{
-    .name = "des",
+    .name = .des,
     .version = "0.1.0",
+    .fingerprint = 0x6119058af36e7514,
     .paths = .{
         "build.zig",
         "build.zig.zon",
@@ -8,9 +9,9 @@
     },
 
     .dependencies = .{
-        .@"zig-args" = .{
-            .url = "git+https://github.com/ikskuh/zig-args#872272205d95bdba33798c94e72c5387a31bc806",
-            .hash = "1220fe6ae56b668cc4a033282b5f227bfbb46a67ede6d84e9f9493fea9de339b5f37",
+        .args = .{
+            .url = "git+https://github.com/ikskuh/zig-args?ref=master#8ae26b44a884ff20dca98ee84c098e8f8e94902f",
+            .hash = "args-0.0.0-CiLiqojRAACGzDRO7A9dw7kWSchNk29caJZkXuMCb0Cn",
         },
     },
 }

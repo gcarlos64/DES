@@ -182,7 +182,7 @@ pub fn main() !u8 {
         .encrypt => try cipher.perform(.encrypt, dst, src),
     }
 
-    try std.fs.cwd().writeFile(dst_filepath, dst);
+    try std.fs.cwd().writeFile(.{.sub_path = dst_filepath, .data = dst});
 
     return 0;
 }
